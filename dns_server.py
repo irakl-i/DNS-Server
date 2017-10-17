@@ -1,18 +1,8 @@
 from socket import *
 import binascii
-import dnslib
 import io
-
-
-def get_response(data):
-    # packet = binascii.unhexlify(data)
-    # print(dnslib.DNSRecord.parse(data))
-
-    response = bytearray()
-    response[:2] = data[:2]
-    # print(response)
-
-    return response
+import os
+from easyzone import easyzone
 
 
 def listener(address):
@@ -24,12 +14,18 @@ def listener(address):
 
     while True:
         client_data, client_address = listen_socket.recvfrom(512)
-        listen_socket.sendto(get_response(
-            bytearray(client_data)), client_address)
+        # listen_socket.sendto(get_response(
+        #     bytearray(client_data)), client_address)
 
 
 if __name__ == '__main__':
-    with open("example.com.conf") as conf_file:
-        z = dnslib.ZoneParser(conf_file.read())
-        print(list(z.parse()))
-    listener(('127.0.0.1', 53))
+    if len(os.sys.argv) < 2:
+        print("Exiting")
+        os.sys.exit()
+
+    for filename in os.listdir(os.sys.argv[1]):
+        print(filename)
+
+    zone = easyzone.zone_from_file('google.com', '/zones/google.com.conf')
+    print(zone.root.records('NS').items)
+    # listener(('127.0.0.1', 5353))
