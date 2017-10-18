@@ -17,8 +17,26 @@ def get_bit(byte, index):
     return (byte & 2 ** index) != 0
 
 
-def parse_question(dns_question):
+def parse_body(dns_body):
     """Parses DNS question from binary data."""
+    length = struct.unpack('!B', dns_body[:1])[0]
+    print(length)
+
+    dns_body = dns_body[1:]
+    domain = ""
+    while True:
+        part = struct.unpack('!{}c'.format(length), dns_body[:length])
+        for ch in part:
+            domain += ch.decode()
+        domain += '.'
+        dns_body = dns_body[length:]
+        val = struct.unpack('!B', dns_body[:1])[0]
+        if val == 0:
+            break
+        dns_body = dns_body[1:]
+        length = val
+
+    print(domain)
 
 
 def parse_header(dns_header):
@@ -41,7 +59,7 @@ def listener(address):
     while True:
         message, client_address = listen_socket.recvfrom(512)
         parse_header(message[:12])
-        parse_question(message[12:])
+        parse_body(message[12:])
 
 
 if __name__ == '__main__':
