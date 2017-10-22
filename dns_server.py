@@ -4,6 +4,8 @@ import binascii
 import io
 import os
 import struct
+import ipaddress
+from sys import getsizeof
 
 ID = 0
 FLAGS = 1
@@ -25,7 +27,6 @@ RECORDS = {
 # Global variables
 HEADERS = None
 RECURSION_DESIRED = None
-QUESTIONS = None
 
 def get_bit(byte, index):
 	return (byte & 2**index) != 0
@@ -39,17 +40,32 @@ def clear_bit(byte, index):
 	return byte & ~(2**index)
 
 
+def get_key(dictionary, search_value):
+	for key, value in dictionary.items():
+		if value == search_value:
+			return key
+
+
 def generate_header(questions):
 	# Set correct values for flags
 	flags = HEADERS[FLAGS]
-	flags = set_bit(flags, 15)  # Set the query type to answer
-	flags = set_bit(flags, 7)  # Set the recursion available to true
-	flags = clear_bit(flags, 5)  # Clear the AD bit
+	flags = set_bit(flags, 15)  		# Set the query type to answer
+	flags = set_bit(flags, 7)  			# Set the recursion available to true
+	flags = clear_bit(flags, 5)  		# Clear the AD bit
 
 	return struct.pack('!6H', HEADERS[ID], flags, 1, questions, 0, 0)
 
-def generate_body():
-	return 0
+
+def generate_body(requested_domain, requested_record, zone):
+	compressed = int('c00c', 16) 					# Domain name location (c00c => starts from the 12th byte)
+	record = get_key(RECORDS, requested_record)
+	class_type = 1 									# Internet
+	ttl = zone.names[requested_domain + '.'].ttl
+	address = int(ipaddress.ip_address(zone.root.records(requested_record).items[0]))
+	data_length = 4 								# TODO: Calculate correct values
+
+	body = struct.pack('!HHHIHI', compressed, record, class_type, ttl, data_length, address)
+	return body
 
 def generate_query(requested_domain, requested_record, question_query):
 	path = os.sys.argv[1]
@@ -59,12 +75,12 @@ def generate_query(requested_domain, requested_record, question_query):
 		files.append(filename)
 
 	zone = easyzone.zone_from_file(requested_domain, '{}/{}'.format(path, requested_domain + '.conf'))
-	items = zone.root.records(requested_record).items
 
-	header = generate_header(len(items))
-	body = question_query # + generate_body()
+	header = generate_header(len(zone.root.records(requested_record).items))
+	body = question_query + generate_body(requested_domain, requested_record, zone)
 
 	return header, body
+
 
 def parse_body(dns_body):
 	"""Parses DNS question from binary data."""
@@ -101,11 +117,10 @@ def parse_header(dns_header):
 
 	global HEADERS
 	global RECURSION_DESIRED
-	global QUESTIONS
 
 	HEADERS = struct.unpack('!6H', dns_header)
 	RECURSION_DESIRED = get_bit(HEADERS[FLAGS], 8)
-	QUESTIONS = HEADERS[QDCOUNT]
+
 
 def listener(address):
 	"""Listens to the incoming connections."""
