@@ -27,7 +27,6 @@ HEADERS = None
 RECURSION_DESIRED = None
 QUESTIONS = None
 
-
 def get_bit(byte, index):
 	return (byte & 2**index) != 0
 
@@ -40,15 +39,32 @@ def clear_bit(byte, index):
 	return byte & ~(2**index)
 
 
-def generate_header():
+def generate_header(questions):
 	# Set correct values for flags
 	flags = HEADERS[FLAGS]
 	flags = set_bit(flags, 15)  # Set the query type to answer
 	flags = set_bit(flags, 7)  # Set the recursion available to true
 	flags = clear_bit(flags, 5)  # Clear the AD bit
 
-	return struct.pack('!6H', HEADERS[ID], flags, 1, 1, 0, 0)
+	return struct.pack('!6H', HEADERS[ID], flags, 1, questions, 0, 0)
 
+def generate_body():
+	return 0
+
+def generate_query(requested_domain, requested_record, question_query):
+	path = os.sys.argv[1]
+	files = list()
+
+	for filename in os.listdir(path):
+		files.append(filename)
+
+	zone = easyzone.zone_from_file(requested_domain, '{}/{}'.format(path, requested_domain + '.conf'))
+	items = zone.root.records(requested_record).items
+
+	header = generate_header(len(items))
+	body = question_query # + generate_body()
+
+	return header, body
 
 def parse_body(dns_body):
 	"""Parses DNS question from binary data."""
@@ -56,24 +72,28 @@ def parse_body(dns_body):
 	length = struct.unpack('!B', dns_body[:1])[0]
 	dns_body = dns_body[1:]
 
-	domain = ""
+	requested_domain = ''
+	query_length = 0
 	while True:
+		query_length += length + 1
 		part = struct.unpack('!{}c'.format(length), dns_body[:length])
 		for ch in part:
-			domain += ch.decode()
+			requested_domain += ch.decode()
 		dns_body = dns_body[length:]
 
 		val = struct.unpack('!B', dns_body[:1])[0]
 		if val == 0:
+			query_length += 1
 			break
 
-		domain += '.'
+		requested_domain += '.'
 		dns_body = dns_body[1:]
 		length = val
 
-	print(domain)
 	record = struct.unpack('!H', dns_body[1:3])[0]
-	print(RECORDS[record])
+	requested_record = RECORDS[record]
+
+	return requested_domain, requested_record, query_length + 4
 
 
 def parse_header(dns_header):
@@ -87,7 +107,6 @@ def parse_header(dns_header):
 	RECURSION_DESIRED = get_bit(HEADERS[FLAGS], 8)
 	QUESTIONS = HEADERS[QDCOUNT]
 
-
 def listener(address):
 	"""Listens to the incoming connections."""
 
@@ -97,25 +116,17 @@ def listener(address):
 
 	while True:
 		message, client_address = listen_socket.recvfrom(512)
+
 		parse_header(message[:12])
-		parse_body(message[12:])
-		listen_socket.sendto(generate_header(), client_address)
+		requested_domain, requested_record, query_length = parse_body(message[12:])
+
+		header, body = generate_query(requested_domain, requested_record, message[12:12 + query_length])
+		listen_socket.sendto(header + body, client_address)
 
 
 if __name__ == '__main__':
 	if len(os.sys.argv) < 2:
 		print("Exiting")
 		os.sys.exit()
-
-	path = os.sys.argv[1]
-	files = list()
-	for filename in os.listdir(path):
-		files.append(filename)
-
-	# print(files[0][:-5])
-
-	for file in files:
-		zone = easyzone.zone_from_file(file[:-5], '{}/{}'.format(path, file))
-		# print(zone.root.records('NS').items)
 
 	listener(('127.0.0.1', 53))
