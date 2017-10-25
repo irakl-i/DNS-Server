@@ -5,7 +5,7 @@ import io
 import os
 import struct
 import ipaddress
-from sys import getsizeof
+import random
 
 ID = 0
 FLAGS = 1
@@ -23,6 +23,22 @@ RECORDS = {
     16: 'TXT',
     28: 'AAAA'
 }
+
+ROOT_SERVERS = [
+    '198.41.0.4',
+    '192.228.79.201',
+    '192.33.4.12',
+    '199.7.91.13',
+    '192.203.230.10',
+    '192.5.5.241',
+    '192.112.36.4',
+    '198.97.190.53',
+    '192.36.148.17',
+    '192.58.128.30',
+    '193.0.14.129',
+    '199.7.83.42',
+    '202.12.27.33'
+]
 
 # Global variables
 HEADERS = None
@@ -46,6 +62,19 @@ def get_key(dictionary, search_value):
 			return key
 
 
+def recursion(requested_domain, requested_record, message):
+	send_socket = socket(AF_INET, SOCK_DGRAM)
+	send_socket.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
+	send_socket.bind(('', random.randint(50000, 55000)))
+	send_socket.sendto(message, (ROOT_SERVERS[0], 53))
+
+	answer = send_socket.recvfrom(512)
+	reply = answer[0]
+	answer_position = 16 + len(domain_to_bytes(requested_domain))
+
+	print(reply[answer_position:])
+	return 0
+
 def generate_header(questions):
 	# Set correct values for flags
 	flags = HEADERS[FLAGS]
@@ -64,6 +93,7 @@ def domain_to_bytes(domain):
 	compressed += b'\x00' # String terminator
 
 	return compressed
+
 
 def generate_body(requested_domain, requested_record, zone):
 	results = zone.root.records(requested_record).items
@@ -102,14 +132,19 @@ def generate_body(requested_domain, requested_record, zone):
 
 	return body
 
-def generate_query(requested_domain, requested_record, question_query):
+def generate_query(requested_domain, requested_record, question_query, message):
 	path = os.sys.argv[1]
 	files = list()
 
 	for filename in os.listdir(path):
 		files.append(filename)
 
-	zone = easyzone.zone_from_file(requested_domain, '{}/{}'.format(path, requested_domain + '.conf'))
+	try:
+		zone = easyzone.zone_from_file(requested_domain, '{}/{}'.format(path, requested_domain + '.conf'))
+	except:
+		print("Do the recursion Zhu Lee")
+		recursion(requested_domain, requested_record, message)
+		os.sys.exit()
 
 	header = generate_header(len(zone.root.records(requested_record).items))
 	body = question_query + generate_body(requested_domain, requested_record, zone)
@@ -172,7 +207,7 @@ def listener(address):
 
 		if requested_record == 'CNAME':
 			requested_record = 'SOA'
-		header, body = generate_query(requested_domain, requested_record, message[12:12 + query_length])
+		header, body = generate_query(requested_domain, requested_record, message[12:12 + query_length], message)
 		listen_socket.sendto(header + body, client_address)
 
 
