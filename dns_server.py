@@ -62,6 +62,34 @@ def get_key(dictionary, search_value):
 			return key
 
 
+def decompress(domain, message):
+	decompressed_domain = ''
+	while True:
+		first_byte = struct.unpack('!B', domain[:1])
+		if get_bit(first_byte[0], 7) and get_bit(first_byte[0], 6):
+			pointer = struct.unpack('!H', domain[:2])[0]
+			pointer = clear_bit(pointer, 15)
+			pointer = clear_bit(pointer, 14)
+			decompressed_domain += decompress(message[17:], message)
+			break
+		else:
+			text_length = struct.unpack('!B', domain[:1])[0]
+			domain = domain[1:]
+			part = struct.unpack('!{}c'.format(text_length), domain[:text_length])
+			for ch in part:
+				decompressed_domain += ch.decode()
+			domain = domain[text_length:]
+
+			val = struct.unpack('!B', domain[:1])[0]
+			if val == 0:
+				break
+
+			decompressed_domain += '.'
+			text_length = val
+
+	return decompressed_domain
+
+
 def recursion(requested_domain, requested_record, message):
 	send_socket = socket(AF_INET, SOCK_DGRAM)
 	send_socket.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
@@ -70,9 +98,19 @@ def recursion(requested_domain, requested_record, message):
 
 	answer = send_socket.recvfrom(512)
 	reply = answer[0]
-	answer_position = 16 + len(domain_to_bytes(requested_domain))
 
-	print(reply[answer_position:])
+	headers = struct.unpack('!6H', message[:12])
+	flags = headers[FLAGS]
+
+	# Check if the server is authoritive.
+	if not get_bit(flags, 10):
+		answer_position = 16 + len(domain_to_bytes(requested_domain))
+		length = struct.unpack("!H", reply[answer_position + 10: answer_position + 12])[0]
+		domain = reply[answer_position + 12 : answer_position + 12 + length]
+		decompressed_domain = decompress(domain, message)
+		print(decompressed_domain)
+		# print(domain)
+
 	return 0
 
 def generate_header(questions):
