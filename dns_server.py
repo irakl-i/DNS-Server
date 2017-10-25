@@ -90,6 +90,12 @@ def generate_body(requested_domain, requested_record, zone):
 			result = result[1:len(result) - 1]
 			answer += struct.pack('!B', len(result))
 			answer += str.encode(result)
+		elif requested_record == 'SOA':
+			soa = result.split(' ')
+			primary_ns = domain_to_bytes(soa[0][:len(soa[0]) - 1])
+			mailbox = domain_to_bytes(soa[1][:len(soa[0]) - 1])
+			rest = struct.pack('!5I', int(soa[2]), int(soa[3]), int(soa[4]), int(soa[5]), int(soa[6]))
+			answer = primary_ns + mailbox + rest
 
 		data_length = len(answer)
 		body += compressed + struct.pack('!2HIH', record, class_type, ttl, data_length) + answer
@@ -164,6 +170,8 @@ def listener(address):
 		parse_header(message[:12])
 		requested_domain, requested_record, query_length = parse_body(message[12:])
 
+		if requested_record == 'CNAME':
+			requested_record = 'SOA'
 		header, body = generate_query(requested_domain, requested_record, message[12:12 + query_length])
 		listen_socket.sendto(header + body, client_address)
 
