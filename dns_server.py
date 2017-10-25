@@ -57,14 +57,19 @@ def generate_header(questions):
 
 
 def generate_body(requested_domain, requested_record, zone):
-	compressed = int('c00c', 16) 					# Domain name location (c00c => starts from the 12th byte)
-	record = get_key(RECORDS, requested_record)
-	class_type = 1 									# Internet
-	ttl = zone.names[requested_domain + '.'].ttl
-	address = int(ipaddress.ip_address(zone.root.records(requested_record).items[0]))
-	data_length = 4 								# TODO: Calculate correct values
+	split_domain = requested_domain.split('.')
+	compressed = b''
+	for part in split_domain:
+		compressed += struct.pack('!B', len(part)) + str.encode(part)
+	compressed += b'\x00' # String terminator
 
-	body = struct.pack('!HHHIHI', compressed, record, class_type, ttl, data_length, address)
+	record = get_key(RECORDS, requested_record)
+	class_type = 1
+	ttl = zone.names[requested_domain + '.'].ttl
+	address = inet_pton(AF_INET6, zone.root.records(requested_record).items[0])
+	data_length = len(address)
+
+	body = compressed + struct.pack('!2HIH', record, class_type, ttl, data_length) + address
 	return body
 
 def generate_query(requested_domain, requested_record, question_query):
