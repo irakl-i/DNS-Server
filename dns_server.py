@@ -70,7 +70,7 @@ def decompress(domain, message):
 			pointer = struct.unpack('!H', domain[:2])[0]
 			pointer = clear_bit(pointer, 15)
 			pointer = clear_bit(pointer, 14)
-			decompressed_domain += decompress(message[17:], message)
+			decompressed_domain += decompress(message[pointer:], message)
 			break
 		else:
 			text_length = struct.unpack('!B', domain[:1])[0]
@@ -80,6 +80,7 @@ def decompress(domain, message):
 				decompressed_domain += ch.decode()
 			domain = domain[text_length:]
 
+			
 			val = struct.unpack('!B', domain[:1])[0]
 			if val == 0:
 				break
@@ -94,12 +95,12 @@ def recursion(requested_domain, requested_record, message):
 	send_socket = socket(AF_INET, SOCK_DGRAM)
 	send_socket.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
 	send_socket.bind(('', random.randint(50000, 55000)))
-	send_socket.sendto(message, (ROOT_SERVERS[0], 53))
+	send_socket.sendto(message, ('ns1.yahoo.com', 53))
 
 	answer = send_socket.recvfrom(512)
 	reply = answer[0]
 
-	headers = struct.unpack('!6H', message[:12])
+	headers = struct.unpack('!6H', reply[:12])
 	flags = headers[FLAGS]
 
 	# Check if the server is authoritive.
@@ -110,6 +111,8 @@ def recursion(requested_domain, requested_record, message):
 		decompressed_domain = decompress(domain, message)
 		print(decompressed_domain)
 		# print(domain)
+	else:
+		print(decompress(reply[27:29], reply))
 
 	return 0
 
