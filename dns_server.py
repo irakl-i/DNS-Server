@@ -56,20 +56,44 @@ def generate_header(questions):
 	return struct.pack('!6H', HEADERS[ID], flags, 1, questions, 0, 0)
 
 
-def generate_body(requested_domain, requested_record, zone):
-	split_domain = requested_domain.split('.')
+def domain_to_bytes(domain):
+	split_domain = domain.split('.')
 	compressed = b''
 	for part in split_domain:
 		compressed += struct.pack('!B', len(part)) + str.encode(part)
 	compressed += b'\x00' # String terminator
 
-	record = get_key(RECORDS, requested_record)
-	class_type = 1
-	ttl = zone.names[requested_domain + '.'].ttl
-	address = inet_pton(AF_INET6, zone.root.records(requested_record).items[0])
-	data_length = len(address)
+	return compressed
 
-	body = compressed + struct.pack('!2HIH', record, class_type, ttl, data_length) + address
+def generate_body(requested_domain, requested_record, zone):
+	results = zone.root.records(requested_record).items
+	body = b''
+	for i in range(0, len(results)):
+		compressed = domain_to_bytes(requested_domain)
+		record = get_key(RECORDS, requested_record)
+		class_type = 1
+		ttl = zone.names[requested_domain + '.'].ttl
+
+		answer = b''
+		# Answer calculations
+		result = zone.root.records(requested_record).items[i]
+		if requested_record == 'A':
+			answer = inet_pton(AF_INET, result)
+		elif requested_record == 'AAAA':
+			answer = inet_pton(AF_INET6, result)
+		elif requested_record == 'NS':
+			answer = domain_to_bytes(result[:len(result) - 1])
+		elif requested_record == 'MX':
+			answer = struct.pack('!H', result[0])
+			answer += domain_to_bytes(result[1][:len(result[1]) - 1])
+		elif requested_record == 'TXT':
+			result = result[1:len(result) - 1]
+			answer += struct.pack('!B', len(result))
+			answer += str.encode(result)
+
+		data_length = len(answer)
+		body += compressed + struct.pack('!2HIH', record, class_type, ttl, data_length) + answer
+
 	return body
 
 def generate_query(requested_domain, requested_record, question_query):
