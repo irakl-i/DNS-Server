@@ -80,7 +80,6 @@ def decompress(domain, message):
 				decompressed_domain += ch.decode()
 			domain = domain[text_length:]
 
-			
 			val = struct.unpack('!B', domain[:1])[0]
 			if val == 0:
 				break
@@ -91,17 +90,21 @@ def decompress(domain, message):
 	return decompressed_domain
 
 
-def recursion(requested_domain, requested_record, message):
+def find_recursively(requested_domain, message):
+	root_server = ROOT_SERVERS[random.randint(0, len(ROOT_SERVERS) - 1)]
+	return recursion(requested_domain, message, root_server)
+
+
+def recursion(requested_domain, message, server):
 	send_socket = socket(AF_INET, SOCK_DGRAM)
 	send_socket.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
 	send_socket.bind(('', random.randint(50000, 55000)))
-	send_socket.sendto(message, ('ns1.yahoo.com', 53))
-
-	answer = send_socket.recvfrom(512)
-	reply = answer[0]
+	send_socket.sendto(message, (server, 53))
+	reply = send_socket.recvfrom(512)[0]
 
 	headers = struct.unpack('!6H', reply[:12])
 	flags = headers[FLAGS]
+	answer_count = headers[ANCOUNT]
 
 	# Check if the server is authoritive.
 	if not get_bit(flags, 10):
@@ -109,12 +112,18 @@ def recursion(requested_domain, requested_record, message):
 		length = struct.unpack("!H", reply[answer_position + 10: answer_position + 12])[0]
 		domain = reply[answer_position + 12 : answer_position + 12 + length]
 		decompressed_domain = decompress(domain, message)
-		print(decompressed_domain)
-		# print(domain)
+		return recursion(requested_domain, message, decompressed_domain)
 	else:
-		print(decompress(reply[27:29], reply))
+		in_bytes = domain_to_bytes(requested_domain)
+		answer_start = reply[16 + len(in_bytes):]
+		result = b''
+		data_length = struct.unpack('!H', answer_start[10:12])[0]
+		for i in range(answer_count):
+			result += answer_start[:2] + answer_start[2:12] + answer_start[12:12 + data_length]
+			answer_start = answer_start[12 + data_length:]
+		return struct.pack('!6H', headers[ID], headers[FLAGS], HEADERS[QDCOUNT], answer_count, 0, 0) + reply[12:16 + len(in_bytes)], result
 
-	return 0
+	return b'', b''
 
 def generate_header(questions):
 	# Set correct values for flags
@@ -182,13 +191,11 @@ def generate_query(requested_domain, requested_record, question_query, message):
 
 	try:
 		zone = easyzone.zone_from_file(requested_domain, '{}/{}'.format(path, requested_domain + '.conf'))
+		header = generate_header(len(zone.root.records(requested_record).items))
+		body = question_query + generate_body(requested_domain, requested_record, zone)
 	except:
 		print("Do the recursion Zhu Lee")
-		recursion(requested_domain, requested_record, message)
-		os.sys.exit()
-
-	header = generate_header(len(zone.root.records(requested_record).items))
-	body = question_query + generate_body(requested_domain, requested_record, zone)
+		header, body = find_recursively(requested_domain, message)
 
 	return header, body
 
