@@ -105,6 +105,8 @@ def recursion(requested_domain, message, server):
 	headers = struct.unpack('!6H', reply[:12])
 	flags = headers[FLAGS]
 	answer_count = headers[ANCOUNT]
+	nameserver_count = headers[NSCOUNT]
+	additional_count = headers[ANCOUNT]
 
 	# Check if the server is authoritive.
 	if not get_bit(flags, 10):
@@ -112,16 +114,13 @@ def recursion(requested_domain, message, server):
 		length = struct.unpack("!H", reply[answer_position + 10: answer_position + 12])[0]
 		domain = reply[answer_position + 12 : answer_position + 12 + length]
 		decompressed_domain = decompress(domain, message)
+		print("{} is not authoritive for {}, continuing recursive search on {}".format(server, requested_domain, decompressed_domain))		
 		return recursion(requested_domain, message, decompressed_domain)
 	else:
 		in_bytes = domain_to_bytes(requested_domain)
 		answer_start = reply[16 + len(in_bytes):]
-		result = b''
-		data_length = struct.unpack('!H', answer_start[10:12])[0]
-		for i in range(answer_count):
-			result += answer_start[:2] + answer_start[2:12] + answer_start[12:12 + data_length]
-			answer_start = answer_start[12 + data_length:]
-		return struct.pack('!6H', headers[ID], headers[FLAGS], HEADERS[QDCOUNT], answer_count, 0, 0) + reply[12:16 + len(in_bytes)], result
+		print("Found authoritive server for {}: {}".format(requested_domain, server))
+		return struct.pack('!6H', headers[ID], headers[FLAGS], HEADERS[QDCOUNT], answer_count, nameserver_count, additional_count) + reply[12:16 + len(in_bytes)], answer_start
 
 	return b'', b''
 
@@ -189,12 +188,16 @@ def generate_query(requested_domain, requested_record, question_query, message):
 	for filename in os.listdir(path):
 		files.append(filename)
 
+	print("Trying to find {} record on {}".format(requested_record, requested_domain))
+
 	try:
 		zone = easyzone.zone_from_file(requested_domain, '{}/{}'.format(path, requested_domain + '.conf'))
+		if requested_record == 'CNAME':
+				requested_record = 'SOA'
 		header = generate_header(len(zone.root.records(requested_record).items))
 		body = question_query + generate_body(requested_domain, requested_record, zone)
+		print("Found {} record locally".format(requested_record))
 	except:
-		print("Do the recursion Zhu Lee")
 		header, body = find_recursively(requested_domain, message)
 
 	return header, body
@@ -253,8 +256,6 @@ def listener(address):
 		parse_header(message[:12])
 		requested_domain, requested_record, query_length = parse_body(message[12:])
 
-		if requested_record == 'CNAME':
-			requested_record = 'SOA'
 		header, body = generate_query(requested_domain, requested_record, message[12:12 + query_length], message)
 		listen_socket.sendto(header + body, client_address)
 
